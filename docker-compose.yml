@@ -1,0 +1,77 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: jali-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${DB_DATABASE:-jali_payment_gateway}
+      MYSQL_USER: ${DB_USERNAME:-jali}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-jali_secret}
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./deploy/mysql/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    networks:
+      - jali-net
+
+  system-a:
+    build: ./system-a-nestjs
+    container_name: jali-system-a
+    environment:
+      PORT: 3000
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USERNAME: ${DB_USERNAME:-jali}
+      DB_PASSWORD: ${DB_PASSWORD:-jali_secret}
+      DB_DATABASE: ${DB_DATABASE:-jali_payment_gateway}
+      SHARED_SECRET: ${SHARED_SECRET:-jali_secret_123}
+      LARAVEL_URL: http://system-b:8000/api/v1/momo/initialize
+    ports:
+      - "${SYSTEM_A_PORT:-3000}:3000"
+    depends_on:
+      - mysql
+      - system-b
+    networks:
+      - jali-net
+
+  system-b:
+    build: ./system-b-laraval
+    container_name: jali-system-b
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      APP_KEY: ${APP_KEY}
+      APP_DEBUG: ${APP_DEBUG:-true}
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: ${DB_DATABASE:-jali_payment_gateway}
+      DB_USERNAME: ${DB_USERNAME:-jali}
+      DB_PASSWORD: ${DB_PASSWORD:-jali_secret}
+      SHARED_SECRET: ${SHARED_SECRET:-jali_secret_123}
+      SYSTEM_A_WEBHOOK_URL: http://system-a:3000/webhooks/momo-callback
+    ports:
+      - "${SYSTEM_B_PORT:-8000}:8000"
+    depends_on:
+      - mysql
+    networks:
+      - jali-net
+
+  gateway:
+    image: nginx:alpine
+    container_name: jali-gateway
+    ports:
+      - "${GATEWAY_PORT:-8080}:80"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - system-a
+      - system-b
+    networks:
+      - jali-net
+
+volumes:
+  mysql_data:
+
+networks:
+  jali-net:
